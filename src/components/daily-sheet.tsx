@@ -195,6 +195,16 @@ export default function DailySheet() {
         </CardContent>
       </Card>
 
+      {/* Manifesting Visualization Audio */}
+      <Card>
+        <CardContent className="pt-6">
+          <Label className="text-base font-bold italic text-primary">Manifesting Visualization</Label>
+          <audio controls className="w-full mt-2" preload="metadata">
+            <source src="/manifesting-visualization.mp3" type="audio/mpeg" />
+          </audio>
+        </CardContent>
+      </Card>
+
       {/* Success Sprint & Daily Habits */}
       <Card>
         <CardContent className="pt-6">
