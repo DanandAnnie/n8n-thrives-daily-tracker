@@ -7,9 +7,9 @@ import History from "@/components/history";
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+    <main className="min-h-screen bg-background">
       {/* Header */}
-      <div className="bg-white border-b shadow-sm">
+      <div className="bg-card border-b border-border shadow-sm">
         <div className="max-w-4xl mx-auto px-4 py-6 text-center">
           <h1 className="text-3xl font-extrabold tracking-tight">
             {"THRIVES".split("").map((letter, i) => {
