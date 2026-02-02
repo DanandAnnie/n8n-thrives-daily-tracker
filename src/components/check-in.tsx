@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
+import { generateCheckInPDF } from "@/lib/pdf-checkin";
 
 const RATING_QUESTIONS = [
   { key: "thankful", label: "T - Thankful: I practiced gratitude daily", color: "text-green-500" },
@@ -205,6 +206,40 @@ export default function CheckIn() {
       <Button type="submit" className="w-full" disabled={loading} size="lg">
         {loading ? "Saving..." : "Submit Check-In"}
       </Button>
+
+      <div className="flex gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          className="flex-1"
+          onClick={() => {
+            const doc = generateCheckInPDF();
+            doc.save("THRIVES-CheckIn-Blank.pdf");
+          }}
+        >
+          Download Blank Template
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="flex-1"
+          onClick={() => {
+            const numRatings: Record<string, number> = {};
+            for (const [k, v] of Object.entries(ratings)) {
+              numRatings[k] = Number(v);
+            }
+            const doc = generateCheckInPDF({
+              period,
+              date: new Date().toISOString().split("T")[0],
+              ratings: numRatings,
+              reflections,
+            });
+            doc.save(`THRIVES-CheckIn-${period}.pdf`);
+          }}
+        >
+          Download Filled PDF
+        </Button>
+      </div>
     </form>
   );
 }

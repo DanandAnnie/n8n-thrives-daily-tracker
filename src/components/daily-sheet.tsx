@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { generateDailySheetPDF } from "@/lib/pdf-daily-sheet";
 
 const THRIVES = [
   { letter: "T", label: "Thankful", color: "text-green-500", border: "border-green-500" },
@@ -423,6 +424,31 @@ export default function DailySheet() {
       <Button type="submit" className="w-full" disabled={loading} size="lg">
         {loading ? "Saving..." : "Save Daily Sheet"}
       </Button>
+
+      <div className="flex gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          className="flex-1"
+          onClick={() => {
+            const doc = generateDailySheetPDF();
+            doc.save("THRIVES-Daily-Sheet-Blank.pdf");
+          }}
+        >
+          Download Blank Template
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="flex-1"
+          onClick={() => {
+            const doc = generateDailySheetPDF(formData);
+            doc.save(`THRIVES-Daily-Sheet-${formData.date}.pdf`);
+          }}
+        >
+          Download Filled PDF
+        </Button>
+      </div>
     </form>
   );
 }
