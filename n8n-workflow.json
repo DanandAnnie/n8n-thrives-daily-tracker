@@ -1,0 +1,290 @@
+{
+  "name": "THRIVES Tracker - Google Sheets Backend",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "thrives-tracker",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "save-daily",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputLabel": "Save Daily"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "save-checkin",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputLabel": "Save Check-In"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "get-history",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputLabel": "Get History"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "switch-1",
+      "name": "Route by Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "sheets-daily",
+      "name": "Save Daily Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [700, 140]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "sheets-checkin",
+      "name": "Save Check-In",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "options": {}
+      },
+      "id": "sheets-history-checkins",
+      "name": "Read Check-Ins",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [700, 460]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "options": {}
+      },
+      "id": "sheets-history-daily",
+      "name": "Read Daily Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [700, 620]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flatten the daily sheet data for Google Sheets\nconst input = $input.first().json;\nconst d = input.data;\n\nreturn [{\n  json: {\n    date: d.date,\n    dayOfWeek: d.dayOfWeek,\n    wordOfQuarter: d.wordOfQuarter,\n    focusQuote: d.focusQuote,\n    thrives_T: d.thrives?.T || '',\n    thrives_H: d.thrives?.H || '',\n    thrives_R: d.thrives?.R || '',\n    thrives_I: d.thrives?.I || '',\n    thrives_V: d.thrives?.V || '',\n    thrives_E: d.thrives?.E || '',\n    thrives_S: d.thrives?.S || '',\n    successSprint: JSON.stringify(d.successSprint),\n    successSprintBonus: JSON.stringify(d.successSprintBonus),\n    thrivesChecks: JSON.stringify(d.thrivesChecks),\n    thrivesBonus: JSON.stringify(d.thrivesBonus),\n    habit_skinOfTheGame: d.dailyHabits?.skinOfTheGame || false,\n    habit_mindMovieMap: d.dailyHabits?.mindMovieMap || false,\n    habit_videoTexts: d.dailyHabits?.videoTexts || false,\n    empoweringQuestions: d.empoweringQuestions || '',\n    millionDollarIdea: d.millionDollarIdea || '',\n    gratitudeWins: d.gratitudeWins || '',\n    hitList: JSON.stringify(d.hitList),\n    journalNotes: d.journalNotes || '',\n    tomorrowPredictions: JSON.stringify(d.tomorrowPredictions),\n    ritual_calendarTomorrow: d.eveningRituals?.calendarTomorrow || false,\n    ritual_mindMovieTomorrow: d.eveningRituals?.mindMovieTomorrow || false,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "code-daily",
+      "name": "Flatten Daily Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flatten check-in data for Google Sheets\nconst input = $input.first().json;\nconst d = input.data;\n\nconst row = {\n  date: new Date().toISOString().split('T')[0],\n  period: d.period,\n  score: d.score,\n  ...d.ratings,\n  reflection_doingWell: d.reflections?.doingWell || '',\n  reflection_continueDoing: d.reflections?.continueDoing || '',\n  reflection_weakAreas: d.reflections?.weakAreas || '',\n  reflection_improve: d.reflections?.improve || '',\n  reflection_resources: d.reflections?.resources || '',\n  timestamp: new Date().toISOString()\n};\n\nreturn [{ json: row }];"
+      },
+      "id": "code-checkin",
+      "name": "Flatten Check-In Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine check-in and daily sheet history\nconst checkIns = $('Read Check-Ins').all().map(item => ({\n  date: item.json.date || item.json.timestamp?.split('T')[0] || '',\n  period: item.json.period || '',\n  score: Number(item.json.score) || 0\n}));\n\nconst dailySheets = $('Read Daily Sheets').all().map(item => {\n  const habits = [\n    item.json.habit_skinOfTheGame,\n    item.json.habit_mindMovieMap,\n    item.json.habit_videoTexts\n  ];\n  const completed = habits.filter(h => h === true || h === 'true' || h === 'TRUE').length;\n  return {\n    date: item.json.date || '',\n    focusQuote: item.json.focusQuote || '',\n    habitsCompleted: completed,\n    habitsTotal: 3\n  };\n});\n\nreturn [{\n  json: {\n    checkIns: checkIns.slice(-20).reverse(),\n    dailySheets: dailySheets.slice(-20).reverse()\n  }\n}];"
+      },
+      "id": "code-history",
+      "name": "Format History",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 540]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, message: 'Daily sheet saved' }) }}",
+        "options": {}
+      },
+      "id": "respond-daily",
+      "name": "Respond Daily OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1100, 80]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, message: 'Check-in saved' }) }}",
+        "options": {}
+      },
+      "id": "respond-checkin",
+      "name": "Respond Check-In OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1100, 240]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "respond-history",
+      "name": "Respond History",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1100, 540]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [{ "node": "Route by Action", "type": "main", "index": 0 }]
+      ]
+    },
+    "Route by Action": {
+      "main": [
+        [{ "node": "Flatten Daily Data", "type": "main", "index": 0 }],
+        [{ "node": "Flatten Check-In Data", "type": "main", "index": 0 }],
+        [
+          { "node": "Read Check-Ins", "type": "main", "index": 0 },
+          { "node": "Read Daily Sheets", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Flatten Daily Data": {
+      "main": [
+        [{ "node": "Save Daily Sheet", "type": "main", "index": 0 }]
+      ]
+    },
+    "Save Daily Sheet": {
+      "main": [
+        [{ "node": "Respond Daily OK", "type": "main", "index": 0 }]
+      ]
+    },
+    "Flatten Check-In Data": {
+      "main": [
+        [{ "node": "Save Check-In", "type": "main", "index": 0 }]
+      ]
+    },
+    "Save Check-In": {
+      "main": [
+        [{ "node": "Respond Check-In OK", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read Check-Ins": {
+      "main": [
+        [{ "node": "Format History", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read Daily Sheets": {
+      "main": [
+        [{ "node": "Format History", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format History": {
+      "main": [
+        [{ "node": "Respond History", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

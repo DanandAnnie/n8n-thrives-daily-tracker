@@ -3,12 +3,16 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
+import { generateDailySheetPDF } from "@/lib/pdf-daily-sheet";
+import { generateCheckInPDF } from "@/lib/pdf-checkin";
 
 interface CheckInEntry {
   date: string;
   period: string;
   score: number;
+  ratings?: Record<string, number>;
+  reflections?: Record<string, string>;
+  [key: string]: any;
 }
 
 interface DailyEntry {
@@ -16,6 +20,7 @@ interface DailyEntry {
   focusQuote: string;
   habitsCompleted: number;
   habitsTotal: number;
+  [key: string]: any;
 }
 
 export default function History() {
@@ -94,7 +99,20 @@ export default function History() {
                           <span className="font-medium">{entry.period}</span>
                           <span className="text-sm ml-2 opacity-75">{entry.date}</span>
                         </div>
-                        <span className="text-xl font-bold">{entry.score}%</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xl font-bold">{entry.score}%</span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-xs h-7 px-2"
+                            onClick={() => {
+                              const doc = generateCheckInPDF(entry);
+                              doc.save(`THRIVES-CheckIn-${entry.date}.pdf`);
+                            }}
+                          >
+                            PDF
+                          </Button>
+                        </div>
                       </div>
                     );
                   })}
@@ -127,9 +145,22 @@ export default function History() {
                           </span>
                         )}
                       </div>
-                      <span className="text-sm">
-                        {entry.habitsCompleted}/{entry.habitsTotal} habits
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">
+                          {entry.habitsCompleted}/{entry.habitsTotal} habits
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-xs h-7 px-2"
+                          onClick={() => {
+                            const doc = generateDailySheetPDF(entry);
+                            doc.save(`THRIVES-Daily-Sheet-${entry.date}.pdf`);
+                          }}
+                        >
+                          PDF
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
