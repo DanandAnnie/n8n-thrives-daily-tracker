@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,9 @@ export default function DailySheet() {
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [calendarSyncing, setCalendarSyncing] = useState(false);
+  const [calendarSynced, setCalendarSynced] = useState(false);
 
   const today = new Date();
   const dayIndex = today.getDay() === 0 ? 6 : today.getDay() - 1;
@@ -75,6 +78,64 @@ export default function DailySheet() {
       return copy;
     });
   };
+
+  const generateAIQuestions = async () => {
+    setAiLoading(true);
+    try {
+      const response = await fetch("/api/workflow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "generate-questions",
+          data: {
+            focusQuote: formData.focusQuote,
+            wordOfQuarter: formData.wordOfQuarter,
+          },
+        }),
+      });
+      if (response.ok) {
+        const result = await response.json();
+        if (result.questions) {
+          updateField("empoweringQuestions", result.questions);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to generate questions:", err);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const syncToCalendar = async () => {
+    setCalendarSyncing(true);
+    setCalendarSynced(false);
+    try {
+      const response = await fetch("/api/workflow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "sync-calendar",
+          data: {
+            date: formData.date,
+            timeBlocks: formData.timeBlocks,
+            hitList: formData.hitList,
+          },
+        }),
+      });
+      if (response.ok) {
+        setCalendarSynced(true);
+      }
+    } catch (err) {
+      console.error("Failed to sync calendar:", err);
+    } finally {
+      setCalendarSyncing(false);
+    }
+  };
+
+  // Pre-fill AI questions on initial load
+  useEffect(() => {
+    generateAIQuestions();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -298,7 +359,19 @@ export default function DailySheet() {
       <Card>
         <CardContent className="pt-6 space-y-4">
           <div className="space-y-1">
-            <Label className="text-base font-bold italic text-primary">Empowering Questions</Label>
+            <div className="flex items-center justify-between">
+              <Label className="text-base font-bold italic text-primary">Empowering Questions</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={generateAIQuestions}
+                disabled={aiLoading}
+                className="text-xs"
+              >
+                {aiLoading ? "Generating..." : "Generate with AI"}
+              </Button>
+            </div>
             <Textarea
               value={formData.empoweringQuestions}
               onChange={(e) => updateField("empoweringQuestions", e.target.value)}
@@ -375,6 +448,21 @@ export default function DailySheet() {
                   </div>
                 ))}
               </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={syncToCalendar}
+                disabled={calendarSyncing}
+                className="w-full mt-4"
+              >
+                {calendarSyncing
+                  ? "Syncing..."
+                  : calendarSynced
+                  ? "Synced to Google Calendar"
+                  : "Sync to Google Calendar"}
+              </Button>
             </div>
 
             <div className="space-y-4">
