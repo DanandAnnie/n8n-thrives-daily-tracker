@@ -33,6 +33,9 @@ export default function DailySheet() {
   const [aiLoading, setAiLoading] = useState(false);
   const [calendarSyncing, setCalendarSyncing] = useState(false);
   const [calendarSynced, setCalendarSynced] = useState(false);
+  const [calendarConnected, setCalendarConnected] = useState(false);
+  const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
+  const [calendarMessage, setCalendarMessage] = useState("");
 
   const today = new Date();
   const dayIndex = today.getDay() === 0 ? 6 : today.getDay() - 1;
@@ -82,15 +85,13 @@ export default function DailySheet() {
   const generateAIQuestions = async () => {
     setAiLoading(true);
     try {
-      const response = await fetch("/api/workflow", {
+      const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "generate-questions",
-          data: {
-            focusQuote: formData.focusQuote,
-            wordOfQuarter: formData.wordOfQuarter,
-          },
+          type: "questions",
+          focusQuote: formData.focusQuote,
+          wordOfQuarter: formData.wordOfQuarter,
         }),
       });
       if (response.ok) {
@@ -106,35 +107,90 @@ export default function DailySheet() {
     }
   };
 
+  const connectGoogleCalendar = async () => {
+    try {
+      const response = await fetch("/api/auth/google");
+      const data = await response.json();
+
+      if (data.error) {
+        setCalendarMessage(data.error);
+        return;
+      }
+
+      if (data.authUrl) {
+        // Redirect to Google OAuth
+        window.location.href = data.authUrl;
+      }
+    } catch (err) {
+      console.error("Failed to start Google auth:", err);
+      setCalendarMessage("Failed to connect to Google Calendar");
+    }
+  };
+
   const syncToCalendar = async () => {
+    if (!googleAccessToken) {
+      // Need to connect first
+      connectGoogleCalendar();
+      return;
+    }
+
     setCalendarSyncing(true);
     setCalendarSynced(false);
+    setCalendarMessage("");
+
     try {
-      const response = await fetch("/api/workflow", {
+      const response = await fetch("/api/calendar/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "sync-calendar",
-          data: {
-            date: formData.date,
-            timeBlocks: formData.timeBlocks,
-            hitList: formData.hitList,
-          },
+          accessToken: googleAccessToken,
+          date: formData.date,
+          timeBlocks: formData.timeBlocks,
+          hitList: formData.hitList,
         }),
       });
-      if (response.ok) {
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
         setCalendarSynced(true);
+        setCalendarMessage(result.message || "Calendar synced!");
+      } else {
+        setCalendarMessage(result.error || "Failed to sync calendar");
       }
     } catch (err) {
       console.error("Failed to sync calendar:", err);
+      setCalendarMessage("Failed to sync calendar");
     } finally {
       setCalendarSyncing(false);
     }
   };
 
-  // Pre-fill AI questions on initial load
+  // Check for Google OAuth callback on mount
   useEffect(() => {
-    generateAIQuestions();
+    const params = new URLSearchParams(window.location.search);
+    const authStatus = params.get("auth");
+    const accessToken = params.get("access_token");
+
+    if (authStatus === "success" && accessToken) {
+      setGoogleAccessToken(accessToken);
+      setCalendarConnected(true);
+      setCalendarMessage("Google Calendar connected!");
+
+      // Clean up URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (authStatus === "error") {
+      const message = params.get("message") || "Authentication failed";
+      setCalendarMessage(`Calendar auth error: ${message}`);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
+  // Pre-fill AI questions on initial load (only if fields are empty)
+  useEffect(() => {
+    if (!formData.empoweringQuestions) {
+      generateAIQuestions();
+    }
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -449,20 +505,29 @@ export default function DailySheet() {
                 ))}
               </div>
 
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={syncToCalendar}
-                disabled={calendarSyncing}
-                className="w-full mt-4"
-              >
-                {calendarSyncing
-                  ? "Syncing..."
-                  : calendarSynced
-                  ? "Synced to Google Calendar"
-                  : "Sync to Google Calendar"}
-              </Button>
+              <div className="space-y-2 mt-4">
+                <Button
+                  type="button"
+                  variant={calendarConnected ? "default" : "outline"}
+                  size="sm"
+                  onClick={syncToCalendar}
+                  disabled={calendarSyncing}
+                  className="w-full"
+                >
+                  {calendarSyncing
+                    ? "Syncing..."
+                    : calendarSynced
+                    ? "Synced to Google Calendar"
+                    : calendarConnected
+                    ? "Sync to Google Calendar"
+                    : "Connect Google Calendar"}
+                </Button>
+                {calendarMessage && (
+                  <p className={`text-xs text-center ${calendarSynced ? "text-green-600" : "text-muted-foreground"}`}>
+                    {calendarMessage}
+                  </p>
+                )}
+              </div>
             </div>
 
             <div className="space-y-4">
