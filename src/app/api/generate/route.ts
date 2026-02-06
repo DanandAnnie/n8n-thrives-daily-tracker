@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 interface GenerateRequest {
-  type: "questions";
+  type: "questions" | "focus" | "idea";
   focusQuote?: string;
   wordOfQuarter?: string;
 }
@@ -25,10 +25,40 @@ const QUESTION_TEMPLATES = [
   "How can I make someone else's day better?",
 ];
 
-const QUOTE_BASED_QUESTIONS = [
-  "How does '{quote}' apply to my situation today?",
-  "What action can I take right now to embody '{quote}'?",
-  "How can I share the wisdom of '{quote}' with others?",
+const FOCUS_QUOTES = [
+  "The only way to do great work is to love what you do.",
+  "Success is not final, failure is not fatal: it is the courage to continue that counts.",
+  "Your network is your net worth.",
+  "Be the energy you want to attract.",
+  "Progress, not perfection.",
+  "What you focus on expands.",
+  "Leaders are readers.",
+  "Act as if it were impossible to fail.",
+  "The harder you work, the luckier you get.",
+  "Your habits determine your future.",
+  "Dream big, start small, act now.",
+  "Discipline equals freedom.",
+  "Energy flows where attention goes.",
+  "You don't attract what you want, you attract what you are.",
+  "The best time to plant a tree was 20 years ago. The second best time is now.",
+];
+
+const MILLION_DOLLAR_IDEAS = [
+  "AI-powered personal finance coach that analyzes spending habits and creates custom savings plans",
+  "Subscription box for small business owners with curated tools, books, and resources each month",
+  "A platform connecting local real estate investors with homeowners facing foreclosure for win-win deals",
+  "Mobile app that gamifies daily habits and accountability with a community leaderboard",
+  "Virtual staging service using AI for real estate listings at 1/10th the cost",
+  "On-demand video messaging platform for personalized client follow-ups at scale",
+  "Neighborhood micro-investing app where locals fund and profit from community businesses",
+  "AI assistant that generates personalized morning routines based on your goals and calendar",
+  "Digital course platform for teaching THRIVES-style personal development systems",
+  "Automated lead nurturing system that sends personalized video texts based on CRM data",
+  "Community-based co-working app that matches entrepreneurs by complementary skills",
+  "White-label accountability tracker app for coaches and mentors to give their teams",
+  "AI-powered property analysis tool that predicts neighborhood growth and ROI",
+  "Peer-to-peer mentorship marketplace connecting experienced entrepreneurs with beginners",
+  "Smart calendar app that auto-schedules time blocks based on your priorities and energy levels",
 ];
 
 function generateQuestions(wordOfQuarter?: string, focusQuote?: string): string {
@@ -116,6 +146,16 @@ export async function POST(request: NextRequest) {
       // Use template-based generation as fallback
       const questions = generateQuestions(wordOfQuarter, focusQuote);
       return NextResponse.json({ questions });
+    }
+
+    if (type === "focus") {
+      const shuffled = FOCUS_QUOTES.sort(() => 0.5 - Math.random());
+      return NextResponse.json({ focus: shuffled[0] });
+    }
+
+    if (type === "idea") {
+      const shuffled = MILLION_DOLLAR_IDEAS.sort(() => 0.5 - Math.random());
+      return NextResponse.json({ idea: shuffled[0] });
     }
 
     return NextResponse.json({ error: "Invalid type" }, { status: 400 });

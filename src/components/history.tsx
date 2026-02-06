@@ -23,6 +23,13 @@ interface DailyEntry {
   [key: string]: any;
 }
 
+interface LocalSheet {
+  id: string;
+  date: string;
+  savedAt: string;
+  data: any;
+}
+
 export default function History() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -34,15 +41,47 @@ export default function History() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/workflow", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "get-history" }),
-      });
-      if (!response.ok) throw new Error("Failed to load history");
-      const data = await response.json();
-      setCheckIns(data.checkIns || []);
-      setDailySheets(data.dailySheets || []);
+      // Load from localStorage first (always available)
+      const localSheets: DailyEntry[] = [];
+      try {
+        const stored = localStorage.getItem("thrives-daily-sheets");
+        if (stored) {
+          const sheets: LocalSheet[] = JSON.parse(stored);
+          sheets.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
+          for (const sheet of sheets) {
+            const habits = sheet.data.dailyHabits || {};
+            const completed = [habits.skinOfTheGame, habits.mindMovieMap, habits.videoTexts].filter(Boolean).length;
+            localSheets.push({
+              ...sheet.data,
+              date: sheet.date,
+              focusQuote: sheet.data.focusQuote || "",
+              habitsCompleted: completed,
+              habitsTotal: 3,
+            });
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load localStorage:", e);
+      }
+
+      // Also try n8n for check-in scores
+      let remoteCheckIns: CheckInEntry[] = [];
+      try {
+        const response = await fetch("/api/workflow", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "get-history" }),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          remoteCheckIns = data.checkIns || [];
+        }
+      } catch (e) {
+        console.error("Failed to load from n8n:", e);
+      }
+
+      setCheckIns(remoteCheckIns);
+      setDailySheets(localSheets);
       setLoaded(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -51,17 +90,17 @@ export default function History() {
     }
   };
 
+  // Auto-load on mount
+  useEffect(() => {
+    fetchHistory();
+  }, []);
+
   return (
     <div className="space-y-6">
-      {!loaded && (
+      {!loaded && loading && (
         <Card>
           <CardContent className="pt-6 text-center">
-            <p className="text-muted-foreground mb-4">
-              Load your history from Google Sheets to see past entries and scores.
-            </p>
-            <Button onClick={fetchHistory} disabled={loading}>
-              {loading ? "Loading..." : "Load History"}
-            </Button>
+            <p className="text-muted-foreground">Loading history...</p>
           </CardContent>
         </Card>
       )}

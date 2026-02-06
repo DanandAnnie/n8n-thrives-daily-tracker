@@ -26,16 +26,58 @@ const TIME_SLOTS = [
   "1:00", "2:00", "3:00", "4:00", "5:00 PM", "6:00 PM", "7:00 PM",
 ];
 
+interface SavedSheet {
+  id: string;
+  date: string;
+  savedAt: string;
+  data: typeof defaultFormData;
+}
+
+const STORAGE_KEY = "thrives-daily-sheets";
+
+const defaultFormData = {
+  date: "",
+  dayOfWeek: 0,
+  wordOfQuarter: "",
+  focusQuote: "",
+  thrives: { T: "", H: "", R: "", I: "", V: "", E: "", S: "" } as Record<string, string>,
+  successSprint: [false, false, false, false, false],
+  successSprintBonus: [false, false],
+  thrivesChecks: [false, false],
+  thrivesBonus: [false, false],
+  dailyHabits: {
+    skinOfTheGame: false,
+    mindMovieMap: false,
+    videoTexts: false,
+  },
+  empoweringQuestions: "",
+  millionDollarIdea: "",
+  gratitudeWins: "",
+  hitList: ["", "", "", ""],
+  hitListChecks: [false, false, false, false],
+  timeBlocks: {} as Record<string, string>,
+  journalNotes: "",
+  tomorrowPredictions: ["", "", ""],
+  eveningRituals: {
+    calendarTomorrow: false,
+    mindMovieTomorrow: false,
+  },
+};
+
 export default function DailySheet() {
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
+  const [focusLoading, setFocusLoading] = useState(false);
+  const [ideaLoading, setIdeaLoading] = useState(false);
   const [calendarSyncing, setCalendarSyncing] = useState(false);
   const [calendarSynced, setCalendarSynced] = useState(false);
   const [calendarConnected, setCalendarConnected] = useState(false);
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
   const [calendarMessage, setCalendarMessage] = useState("");
+  const [savedSheets, setSavedSheets] = useState<SavedSheet[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
 
   const today = new Date();
   const dayIndex = today.getDay() === 0 ? 6 : today.getDay() - 1;
@@ -107,6 +149,44 @@ export default function DailySheet() {
     }
   };
 
+  const generateFocusQuote = async () => {
+    setFocusLoading(true);
+    try {
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "focus" }),
+      });
+      if (response.ok) {
+        const result = await response.json();
+        if (result.focus) updateField("focusQuote", result.focus);
+      }
+    } catch (err) {
+      console.error("Failed to generate focus quote:", err);
+    } finally {
+      setFocusLoading(false);
+    }
+  };
+
+  const generateMillionDollarIdea = async () => {
+    setIdeaLoading(true);
+    try {
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "idea" }),
+      });
+      if (response.ok) {
+        const result = await response.json();
+        if (result.idea) updateField("millionDollarIdea", result.idea);
+      }
+    } catch (err) {
+      console.error("Failed to generate idea:", err);
+    } finally {
+      setIdeaLoading(false);
+    }
+  };
+
   const connectGoogleCalendar = async () => {
     try {
       const response = await fetch("/api/auth/google");
@@ -166,6 +246,21 @@ export default function DailySheet() {
     }
   };
 
+  // Load saved sheets from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const sheets = JSON.parse(stored) as SavedSheet[];
+        // Sort by savedAt descending (most recent first)
+        sheets.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
+        setSavedSheets(sheets);
+      }
+    } catch (err) {
+      console.error("Failed to load saved sheets:", err);
+    }
+  }, []);
+
   // Check for Google OAuth callback on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -193,17 +288,68 @@ export default function DailySheet() {
     }
   }, []);
 
+  const saveToLocalStorage = (data: typeof formData) => {
+    try {
+      const newSheet: SavedSheet = {
+        id: `${data.date}-${Date.now()}`,
+        date: data.date,
+        savedAt: new Date().toISOString(),
+        data: data,
+      };
+
+      // Check if we already have a sheet for this date
+      const existingIndex = savedSheets.findIndex((s) => s.date === data.date);
+      let updatedSheets: SavedSheet[];
+
+      if (existingIndex >= 0) {
+        // Update existing sheet
+        updatedSheets = [...savedSheets];
+        updatedSheets[existingIndex] = newSheet;
+      } else {
+        // Add new sheet
+        updatedSheets = [newSheet, ...savedSheets];
+      }
+
+      // Keep only the last 30 sheets
+      updatedSheets = updatedSheets.slice(0, 30);
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedSheets));
+      setSavedSheets(updatedSheets);
+    } catch (err) {
+      console.error("Failed to save to localStorage:", err);
+    }
+  };
+
+  const loadSavedSheet = (sheet: SavedSheet) => {
+    setFormData(sheet.data);
+    setShowHistory(false);
+  };
+
+  const deleteSavedSheet = (sheetId: string) => {
+    const updatedSheets = savedSheets.filter((s) => s.id !== sheetId);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedSheets));
+    setSavedSheets(updatedSheets);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/workflow", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "save-daily", data: formData }),
-      });
-      if (!response.ok) throw new Error("Failed to save daily sheet");
+      // Save to localStorage first (always works)
+      saveToLocalStorage(formData);
+
+      // Also try to save to n8n workflow (optional, may fail)
+      try {
+        await fetch("/api/workflow", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "save-daily", data: formData }),
+        });
+      } catch {
+        // Ignore n8n errors - localStorage save is the primary storage
+      }
+
       setSubmitted(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -219,7 +365,12 @@ export default function DailySheet() {
           <div className="text-4xl">&#10003;</div>
           <h3 className="text-xl font-bold text-green-600">Daily Sheet Saved!</h3>
           <p className="text-muted-foreground">Your THRIVES daily sheet has been recorded.</p>
-          <Button onClick={() => setSubmitted(false)}>Fill Out Another</Button>
+          <div className="flex gap-3 justify-center">
+            <Button onClick={() => setSubmitted(false)}>Fill Out Another</Button>
+            <Button variant="outline" onClick={() => { setSubmitted(false); setShowHistory(true); }}>
+              View History
+            </Button>
+          </div>
         </CardContent>
       </Card>
     );
@@ -227,6 +378,79 @@ export default function DailySheet() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Recent Daily Sheets */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg">Recent Daily Sheets</CardTitle>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowHistory(!showHistory)}
+            >
+              {showHistory ? "Hide" : `Show (${savedSheets.length})`}
+            </Button>
+          </div>
+        </CardHeader>
+        {showHistory && (
+          <CardContent className="pt-0">
+            {savedSheets.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No saved sheets yet. Your saved sheets will appear here.
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {savedSheets.map((sheet) => (
+                  <div
+                    key={sheet.id}
+                    className="flex items-center justify-between p-3 bg-muted rounded-lg"
+                  >
+                    <div>
+                      <p className="font-medium">
+                        {new Date(sheet.date).toLocaleDateString("en-US", {
+                          weekday: "short",
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Saved {new Date(sheet.savedAt).toLocaleString()}
+                      </p>
+                      {sheet.data.focusQuote && (
+                        <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                          Focus: {sheet.data.focusQuote}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => loadSavedSheet(sheet)}
+                      >
+                        Load
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => deleteSavedSheet(sheet.id)}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        )}
+      </Card>
+
       {/* Date & Day of Week */}
       <Card>
         <CardContent className="pt-6">
@@ -272,7 +496,19 @@ export default function DailySheet() {
             />
           </div>
           <div className="space-y-1">
-            <Label>Focus / Quote of the Day</Label>
+            <div className="flex items-center justify-between">
+              <Label>Focus / Quote of the Day</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={generateFocusQuote}
+                disabled={focusLoading}
+                className="text-xs h-6 px-2"
+              >
+                {focusLoading ? "..." : "Suggest"}
+              </Button>
+            </div>
             <Input
               value={formData.focusQuote}
               onChange={(e) => updateField("focusQuote", e.target.value)}
@@ -389,8 +625,27 @@ export default function DailySheet() {
             <div className="space-y-3">
               <Label className="text-base font-bold italic">Daily Habits</Label>
               <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    checked={formData.dailyHabits.skinOfTheGame}
+                    onCheckedChange={(v) =>
+                      updateField("dailyHabits.skinOfTheGame", v as boolean)
+                    }
+                    className="h-5 w-5"
+                  />
+                  <Label className="font-normal">
+                    <a
+                      href="https://zoom.us/j/96062300372#success"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline text-blue-400 hover:text-blue-300"
+                    >
+                      Attend Skin of the Game
+                    </a>
+                    <span className="text-xs text-muted-foreground ml-2">8:00 AM</span>
+                  </Label>
+                </div>
                 {[
-                  { key: "skinOfTheGame", label: "Attend Skin of the Game" },
                   { key: "mindMovieMap", label: "Mind Movie Map" },
                   { key: "videoTexts", label: "Send 10 Video Texts" },
                 ].map((habit) => (
@@ -436,7 +691,19 @@ export default function DailySheet() {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-base font-bold italic text-primary">Million Dollar Idea</Label>
+            <div className="flex items-center justify-between">
+              <Label className="text-base font-bold italic text-primary">Million Dollar Idea</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={generateMillionDollarIdea}
+                disabled={ideaLoading}
+                className="text-xs"
+              >
+                {ideaLoading ? "Generating..." : "Trending Ideas"}
+              </Button>
+            </div>
             <Textarea
               value={formData.millionDollarIdea}
               onChange={(e) => updateField("millionDollarIdea", e.target.value)}
