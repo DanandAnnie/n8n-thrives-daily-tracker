@@ -66,11 +66,13 @@ const defaultFormData = {
 
 export default function DailySheet() {
   const [loading, setLoading] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
   const [error, setError] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [focusLoading, setFocusLoading] = useState(false);
   const [ideaLoading, setIdeaLoading] = useState(false);
+  const [predictionsLoading, setPredictionsLoading] = useState(false);
+  const [calendarLoading, setCalendarLoading] = useState(false);
   const [calendarSyncing, setCalendarSyncing] = useState(false);
   const [calendarSynced, setCalendarSynced] = useState(false);
   const [calendarConnected, setCalendarConnected] = useState(false);
@@ -184,6 +186,59 @@ export default function DailySheet() {
       console.error("Failed to generate idea:", err);
     } finally {
       setIdeaLoading(false);
+    }
+  };
+
+  const generatePredictions = async () => {
+    setPredictionsLoading(true);
+    try {
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "predictions" }),
+      });
+      if (response.ok) {
+        const result = await response.json();
+        if (result.predictions) {
+          updateField("tomorrowPredictions", result.predictions);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to generate predictions:", err);
+    } finally {
+      setPredictionsLoading(false);
+    }
+  };
+
+  const loadCalendarEvents = async () => {
+    if (!googleAccessToken) {
+      connectGoogleCalendar();
+      return;
+    }
+    setCalendarLoading(true);
+    setCalendarMessage("");
+    try {
+      const response = await fetch(
+        `/api/calendar/events?date=${formData.date}&access_token=${googleAccessToken}`
+      );
+      if (response.ok) {
+        const result = await response.json();
+        const newBlocks = { ...formData.timeBlocks };
+        for (const event of result.events || []) {
+          if (event.time && !newBlocks[event.time]) {
+            newBlocks[event.time] = event.summary;
+          }
+        }
+        updateField("timeBlocks", newBlocks);
+        setCalendarMessage(`Loaded ${(result.events || []).length} events`);
+      } else {
+        setCalendarMessage("Failed to load events");
+      }
+    } catch (err) {
+      console.error("Failed to load calendar events:", err);
+      setCalendarMessage("Failed to load events");
+    } finally {
+      setCalendarLoading(false);
     }
   };
 
@@ -331,15 +386,26 @@ export default function DailySheet() {
     setSavedSheets(updatedSheets);
   };
 
+  const clearForm = () => {
+    const now = new Date();
+    const di = now.getDay() === 0 ? 6 : now.getDay() - 1;
+    setFormData({
+      ...defaultFormData,
+      date: now.toISOString().split("T")[0],
+      dayOfWeek: di,
+    });
+    setSaveMessage("");
+    setError("");
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setSaveMessage("");
     try {
-      // Save to localStorage first (always works)
       saveToLocalStorage(formData);
 
-      // Also try to save to n8n workflow (optional, may fail)
       try {
         await fetch("/api/workflow", {
           method: "POST",
@@ -347,10 +413,11 @@ export default function DailySheet() {
           body: JSON.stringify({ action: "save-daily", data: formData }),
         });
       } catch {
-        // Ignore n8n errors - localStorage save is the primary storage
+        // Ignore n8n errors
       }
 
-      setSubmitted(true);
+      setSaveMessage("Daily Sheet Saved!");
+      setTimeout(() => setSaveMessage(""), 4000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -358,98 +425,13 @@ export default function DailySheet() {
     }
   };
 
-  if (submitted) {
-    return (
-      <Card>
-        <CardContent className="pt-6 text-center space-y-4">
-          <div className="text-4xl">&#10003;</div>
-          <h3 className="text-xl font-bold text-green-600">Daily Sheet Saved!</h3>
-          <p className="text-muted-foreground">Your THRIVES daily sheet has been recorded.</p>
-          <div className="flex gap-3 justify-center">
-            <Button onClick={() => setSubmitted(false)}>Fill Out Another</Button>
-            <Button variant="outline" onClick={() => { setSubmitted(false); setShowHistory(true); }}>
-              View History
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {/* Recent Daily Sheets */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-lg">Recent Daily Sheets</CardTitle>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowHistory(!showHistory)}
-            >
-              {showHistory ? "Hide" : `Show (${savedSheets.length})`}
-            </Button>
-          </div>
-        </CardHeader>
-        {showHistory && (
-          <CardContent className="pt-0">
-            {savedSheets.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                No saved sheets yet. Your saved sheets will appear here.
-              </p>
-            ) : (
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {savedSheets.map((sheet) => (
-                  <div
-                    key={sheet.id}
-                    className="flex items-center justify-between p-3 bg-muted rounded-lg"
-                  >
-                    <div>
-                      <p className="font-medium">
-                        {new Date(sheet.date).toLocaleDateString("en-US", {
-                          weekday: "short",
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Saved {new Date(sheet.savedAt).toLocaleString()}
-                      </p>
-                      {sheet.data.focusQuote && (
-                        <p className="text-xs text-muted-foreground truncate max-w-[200px]">
-                          Focus: {sheet.data.focusQuote}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => loadSavedSheet(sheet)}
-                      >
-                        Load
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => deleteSavedSheet(sheet.id)}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        )}
-      </Card>
+      {saveMessage && (
+        <div className="p-3 bg-green-500/20 text-green-400 rounded-md text-center text-sm font-medium">
+          {saveMessage}
+        </div>
+      )}
 
       {/* Date & Day of Week */}
       <Card>
@@ -645,21 +627,36 @@ export default function DailySheet() {
                     <span className="text-xs text-muted-foreground ml-2">8:00 AM</span>
                   </Label>
                 </div>
-                {[
-                  { key: "mindMovieMap", label: "Mind Movie Map" },
-                  { key: "videoTexts", label: "Send 10 Video Texts" },
-                ].map((habit) => (
-                  <div key={habit.key} className="flex items-center gap-2">
-                    <Checkbox
-                      checked={(formData.dailyHabits as any)[habit.key]}
-                      onCheckedChange={(v) =>
-                        updateField(`dailyHabits.${habit.key}`, v as boolean)
-                      }
-                      className="h-5 w-5"
-                    />
-                    <Label className="font-normal">{habit.label}</Label>
-                  </div>
-                ))}
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    checked={formData.dailyHabits.mindMovieMap}
+                    onCheckedChange={(v) =>
+                      updateField("dailyHabits.mindMovieMap", v as boolean)
+                    }
+                    className="h-5 w-5"
+                  />
+                  <Label className="font-normal">
+                    <a
+                      href="/simps"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline text-purple-400 hover:text-purple-300"
+                    >
+                      Mind Movie Map
+                    </a>
+                    <span className="text-xs text-muted-foreground ml-2">SIMPS Goals</span>
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    checked={formData.dailyHabits.videoTexts}
+                    onCheckedChange={(v) =>
+                      updateField("dailyHabits.videoTexts", v as boolean)
+                    }
+                    className="h-5 w-5"
+                  />
+                  <Label className="font-normal">Send 10 Video Texts</Label>
+                </div>
               </div>
             </div>
           </div>
@@ -773,22 +770,34 @@ export default function DailySheet() {
               </div>
 
               <div className="space-y-2 mt-4">
-                <Button
-                  type="button"
-                  variant={calendarConnected ? "default" : "outline"}
-                  size="sm"
-                  onClick={syncToCalendar}
-                  disabled={calendarSyncing}
-                  className="w-full"
-                >
-                  {calendarSyncing
-                    ? "Syncing..."
-                    : calendarSynced
-                    ? "Synced to Google Calendar"
-                    : calendarConnected
-                    ? "Sync to Google Calendar"
-                    : "Connect Google Calendar"}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={loadCalendarEvents}
+                    disabled={calendarLoading}
+                    className="flex-1"
+                  >
+                    {calendarLoading ? "Loading..." : "Load from Calendar"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={calendarConnected ? "default" : "outline"}
+                    size="sm"
+                    onClick={syncToCalendar}
+                    disabled={calendarSyncing}
+                    className="flex-1"
+                  >
+                    {calendarSyncing
+                      ? "Syncing..."
+                      : calendarSynced
+                      ? "Synced!"
+                      : calendarConnected
+                      ? "Sync to Calendar"
+                      : "Connect Calendar"}
+                  </Button>
+                </div>
                 {calendarMessage && (
                   <p className={`text-xs text-center ${calendarSynced ? "text-green-600" : "text-muted-foreground"}`}>
                     {calendarMessage}
@@ -809,7 +818,19 @@ export default function DailySheet() {
               </div>
 
               <div className="space-y-2">
-                <Label className="text-base font-bold text-primary">Tomorrow&apos;s Success Predictions</Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-base font-bold text-primary">Tomorrow&apos;s Success Predictions</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={generatePredictions}
+                    disabled={predictionsLoading}
+                    className="text-xs h-6 px-2"
+                  >
+                    {predictionsLoading ? "..." : "Suggest"}
+                  </Button>
+                </div>
                 {formData.tomorrowPredictions.map((pred, i) => (
                   <Input
                     key={i}
@@ -826,34 +847,131 @@ export default function DailySheet() {
 
               <div className="space-y-2">
                 <Label className="text-base font-bold italic">Evening Rituals</Label>
-                {[
-                  { key: "calendarTomorrow", label: "Calendar Out My Day for Tomorrow" },
-                  { key: "mindMovieTomorrow", label: "Mind Movie Map for Tomorrow" },
-                ].map((ritual) => (
-                  <div key={ritual.key} className="flex items-center gap-2">
-                    <Checkbox
-                      checked={(formData.eveningRituals as any)[ritual.key]}
-                      onCheckedChange={(v) =>
-                        updateField(`eveningRituals.${ritual.key}`, v as boolean)
-                      }
-                      className="h-5 w-5"
-                    />
-                    <Label className="font-normal">{ritual.label}</Label>
-                  </div>
-                ))}
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    checked={formData.eveningRituals.calendarTomorrow}
+                    onCheckedChange={(v) =>
+                      updateField("eveningRituals.calendarTomorrow", v as boolean)
+                    }
+                    className="h-5 w-5"
+                  />
+                  <Label className="font-normal">Calendar Out My Day for Tomorrow</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    checked={formData.eveningRituals.mindMovieTomorrow}
+                    onCheckedChange={(v) =>
+                      updateField("eveningRituals.mindMovieTomorrow", v as boolean)
+                    }
+                    className="h-5 w-5"
+                  />
+                  <Label className="font-normal">
+                    <a
+                      href="/simps"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline text-purple-400 hover:text-purple-300"
+                    >
+                      Mind Movie Map for Tomorrow
+                    </a>
+                  </Label>
+                </div>
               </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
+      {/* Recent Daily Sheets */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg">Saved Sheets</CardTitle>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowHistory(!showHistory)}
+            >
+              {showHistory ? "Hide" : `Show (${savedSheets.length})`}
+            </Button>
+          </div>
+        </CardHeader>
+        {showHistory && (
+          <CardContent className="pt-0">
+            {savedSheets.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No saved sheets yet. Your saved sheets will appear here.
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {savedSheets.map((sheet) => (
+                  <div
+                    key={sheet.id}
+                    className="flex items-center justify-between p-3 bg-muted rounded-lg"
+                  >
+                    <div>
+                      <p className="font-medium">
+                        {new Date(sheet.date).toLocaleDateString("en-US", {
+                          weekday: "short",
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Saved {new Date(sheet.savedAt).toLocaleString()}
+                      </p>
+                      {sheet.data.focusQuote && (
+                        <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                          Focus: {sheet.data.focusQuote}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => loadSavedSheet(sheet)}
+                      >
+                        Load
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => deleteSavedSheet(sheet.id)}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        )}
+      </Card>
+
       {error && (
         <div className="p-3 bg-destructive/10 text-destructive rounded-md">{error}</div>
       )}
 
-      <Button type="submit" className="w-full" disabled={loading} size="lg">
-        {loading ? "Saving..." : "Save Daily Sheet"}
-      </Button>
+      <div className="flex gap-3">
+        <Button type="submit" className="flex-1" disabled={loading} size="lg">
+          {loading ? "Saving..." : "Save Daily Sheet"}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          onClick={clearForm}
+        >
+          Clear Form
+        </Button>
+      </div>
 
       <div className="flex gap-3">
         <Button

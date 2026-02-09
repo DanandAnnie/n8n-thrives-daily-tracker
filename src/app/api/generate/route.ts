@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 interface GenerateRequest {
-  type: "questions" | "focus" | "idea";
+  type: "questions" | "focus" | "idea" | "predictions";
   focusQuote?: string;
   wordOfQuarter?: string;
 }
@@ -156,6 +156,30 @@ export async function POST(request: NextRequest) {
     if (type === "idea") {
       const shuffled = MILLION_DOLLAR_IDEAS.sort(() => 0.5 - Math.random());
       return NextResponse.json({ idea: shuffled[0] });
+    }
+
+    if (type === "predictions") {
+      const PREDICTION_TEMPLATES = [
+        "I will close a key deal that moves my business forward",
+        "I will have an amazing conversation that leads to a new opportunity",
+        "I will complete my hit list and feel unstoppable momentum",
+        "I will receive unexpected good news about my finances",
+        "I will make a connection that opens a door I didn't know existed",
+        "I will wake up energized and crush my morning routine",
+        "I will inspire someone with my vision and they'll want to join me",
+        "I will find a creative solution to a challenge I've been facing",
+        "I will take bold action on an idea that's been on my mind",
+        "I will experience a breakthrough in my health and energy",
+        "I will attract the right people and resources at the perfect time",
+        "I will have a productive day that brings me closer to my biggest goal",
+        "I will step outside my comfort zone and be rewarded for it",
+        "I will create massive value for someone and it will come back to me",
+        "I will end the day knowing I gave it everything I had",
+      ];
+      const shuffled = PREDICTION_TEMPLATES.sort(() => 0.5 - Math.random());
+      return NextResponse.json({
+        predictions: [shuffled[0], shuffled[1], shuffled[2]],
+      });
     }
 
     return NextResponse.json({ error: "Invalid type" }, { status: 400 });
