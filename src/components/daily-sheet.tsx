@@ -83,9 +83,15 @@ export default function DailySheet() {
 
   const today = new Date();
   const dayIndex = today.getDay() === 0 ? 6 : today.getDay() - 1;
+  const localDateStr = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
 
   const [formData, setFormData] = useState({
-    date: today.toISOString().split("T")[0],
+    date: localDateStr(today),
     dayOfWeek: dayIndex,
     wordOfQuarter: "",
     focusQuote: "",
@@ -391,7 +397,7 @@ export default function DailySheet() {
     const di = now.getDay() === 0 ? 6 : now.getDay() - 1;
     setFormData({
       ...defaultFormData,
-      date: now.toISOString().split("T")[0],
+      date: localDateStr(now),
       dayOfWeek: di,
     });
     setSaveMessage("");
@@ -443,7 +449,14 @@ export default function DailySheet() {
                 id="date"
                 type="date"
                 value={formData.date}
-                onChange={(e) => updateField("date", e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  updateField("date", val);
+                  if (val) {
+                    const d = new Date(val + "T12:00:00");
+                    updateField("dayOfWeek", d.getDay() === 0 ? 6 : d.getDay() - 1);
+                  }
+                }}
               />
             </div>
             <div className="flex gap-1">
@@ -912,7 +925,7 @@ export default function DailySheet() {
                   >
                     <div>
                       <p className="font-medium">
-                        {new Date(sheet.date).toLocaleDateString("en-US", {
+                        {new Date(sheet.date + "T12:00:00").toLocaleDateString("en-US", {
                           weekday: "short",
                           month: "short",
                           day: "numeric",
