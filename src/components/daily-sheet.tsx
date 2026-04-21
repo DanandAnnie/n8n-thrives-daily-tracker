@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -93,6 +93,147 @@ const defaultFormData = {
     mindMovieTomorrow: false,
   },
 };
+
+// ---------------------------------------------------------------------------
+// Video text recommendations sub-component
+// ---------------------------------------------------------------------------
+
+interface VideoRec {
+  contactId: string;
+  opportunityId: string;
+  name: string;
+  firstName: string;
+  phone: string | null;
+  stage: string;
+  tags: string[];
+  lastActivity: string;
+  suggestedPrompt: string;
+}
+
+const STAGE_BADGE: Record<string, string> = {
+  "Pre Listing":         "bg-orange-500/20 text-orange-400 border-orange-500",
+  "Listing Appointment": "bg-yellow-500/20 text-yellow-400 border-yellow-500",
+  "Active on MLS":       "bg-green-500/20 text-green-400 border-green-500",
+  "Under Contract":      "bg-blue-500/20 text-blue-400 border-blue-500",
+  "Proposal Sent":       "bg-purple-500/20 text-purple-400 border-purple-500",
+  "Just Listed":         "bg-teal-500/20 text-teal-400 border-teal-500",
+  "Past Client":         "bg-pink-500/20 text-pink-400 border-pink-500",
+};
+
+function relativeTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const h = Math.floor(ms / 3600000);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}d ago`;
+  return `${Math.floor(d / 30)}mo ago`;
+}
+
+function VideoTextRecommendations({ date }: { date: string }) {
+  const [recs, setRecs] = useState<VideoRec[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [copied, setCopied] = useState<Record<string, boolean>>({});
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/video-text-recommendations`);
+      if (!res.ok) throw new Error(`API error ${res.status}`);
+      const data = await res.json();
+      setRecs(data.recommendations ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const copyPrompt = (id: string, prompt: string) => {
+    navigator.clipboard.writeText(prompt).then(() => {
+      setCopied((prev) => ({ ...prev, [id]: true }));
+      setTimeout(() => setCopied((prev) => ({ ...prev, [id]: false })), 2000);
+    });
+  };
+
+  return (
+    <div className="mt-4 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+          Suggested Video Texts
+        </p>
+        <button
+          type="button"
+          onClick={load}
+          disabled={loading}
+          className="text-xs text-muted-foreground hover:text-foreground underline"
+        >
+          {loading ? "Loading…" : "Refresh"}
+        </button>
+      </div>
+
+      {error && (
+        <p className="text-xs text-destructive">{error}</p>
+      )}
+
+      {!loading && !error && recs.length === 0 && (
+        <p className="text-xs text-muted-foreground italic">No hot leads in active stages right now.</p>
+      )}
+
+      {recs.map((rec) => {
+        const badge = STAGE_BADGE[rec.stage] ?? "bg-muted text-muted-foreground border-border";
+        const isOpen = expanded[rec.opportunityId];
+        return (
+          <div key={rec.opportunityId} className="rounded-md border border-border bg-muted/30 text-sm">
+            <button
+              type="button"
+              className="w-full flex items-center gap-2 px-3 py-2 text-left"
+              onClick={() => setExpanded((p) => ({ ...p, [rec.opportunityId]: !p[rec.opportunityId] }))}
+            >
+              <span className="flex-1 font-medium truncate">{rec.name}</span>
+              <span className={`text-xs px-1.5 py-0.5 rounded border ${badge} whitespace-nowrap`}>
+                {rec.stage}
+              </span>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {relativeTime(rec.lastActivity)}
+              </span>
+              <span className="text-muted-foreground text-xs">{isOpen ? "▲" : "▼"}</span>
+            </button>
+
+            {isOpen && (
+              <div className="px-3 pb-3 space-y-2 border-t border-border pt-2">
+                {rec.phone && (
+                  <p className="text-xs text-muted-foreground">{rec.phone}</p>
+                )}
+                {rec.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {rec.tags.map((t) => (
+                      <span key={t} className="text-xs bg-muted px-1.5 py-0.5 rounded">{t}</span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-foreground bg-muted/50 rounded p-2 leading-relaxed">
+                  {rec.suggestedPrompt}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => copyPrompt(rec.opportunityId, rec.suggestedPrompt)}
+                  className="text-xs px-2 py-1 rounded bg-primary text-primary-foreground hover:opacity-90"
+                >
+                  {copied[rec.opportunityId] ? "Copied!" : "Copy prompt"}
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function DailySheet() {
   const [loading, setLoading] = useState(false);
@@ -703,6 +844,9 @@ export default function DailySheet() {
               </div>
             </div>
           </div>
+
+          {/* Video text recommendations */}
+          <VideoTextRecommendations date={formData.date} />
         </CardContent>
       </Card>
 
