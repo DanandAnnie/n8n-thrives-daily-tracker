@@ -4,9 +4,8 @@ const GHL_API_BASE = "https://services.leadconnectorhq.com";
 const GHL_API_VERSION = "2021-07-28";
 
 // Stage ID → { display name, priority weight, prompt template key }
-// Built from the Red Rock Real Estate GHL pipeline structure
 const STAGE_MAP: Record<string, { name: string; weight: number; tpl: string }> = {
-  // Pre Listing (weight 100) — multiple seller pipelines
+  // Pre Listing (weight 100)
   "ff57ba8b-0034-4e78-8a9f-3d3548e5e665": { name: "Pre Listing", weight: 100, tpl: "pre-listing" },
   "29783844-49e1-4ad3-9c8d-12d647b37550": { name: "Pre Listing", weight: 100, tpl: "pre-listing" },
   "ab154660-4d07-4e89-946f-3c93de42dacb": { name: "Pre Listing", weight: 100, tpl: "pre-listing" },
@@ -35,7 +34,7 @@ const STAGE_MAP: Record<string, { name: string; weight: number; tpl: string }> =
   "3a6fd7ab-6c68-46dc-aafb-da85f6ad7fc1": { name: "Active on MLS", weight: 85, tpl: "active-mls" },
   "84c2c826-c511-4310-8cdc-a29289ff4ded": { name: "Active on MLS", weight: 85, tpl: "active-mls" },
   "0ce6c640-273b-4280-aae2-6b05646c19c9": { name: "Active on MLS", weight: 85, tpl: "active-mls" },
-  "1cdb69f3-ae0c-4713-bfdd-6b5597a2bccd": { name: "Active on MLS", weight: 85, tpl: "active-mls" }, // "Active" in Listings pipeline
+  "1cdb69f3-ae0c-4713-bfdd-6b5597a2bccd": { name: "Active on MLS", weight: 85, tpl: "active-mls" },
   // Under Contract (weight 80)
   "07664a06-250a-4537-b78f-f2c1cf223e9c": { name: "Under Contract", weight: 80, tpl: "under-contract" },
   "699d23f1-7dbd-4883-9729-7c4fcd7bf031": { name: "Under Contract", weight: 80, tpl: "under-contract" },
@@ -52,8 +51,53 @@ const STAGE_MAP: Record<string, { name: string; weight: number; tpl: string }> =
   "19ccbc9c-c323-4e7b-a124-b950a3b2a28c": { name: "Past Client", weight: 50, tpl: "past-client" },
 };
 
-// Note signals that bump rank
-const HOT_KEYWORDS = ["hot", "ready", "timeline", "cash", "motivated", "asap", "urgent"];
+// Send time slot pools (minutes from midnight, America/Denver local)
+const SLOT_POOLS: Record<string, number[]> = {
+  "pre-listing":    [9*60+30, 9*60+45, 10*60, 10*60+15, 10*60+30, 10*60+45, 11*60, 11*60+15, 11*60+30, 11*60+45],
+  "listing-appt":   [9*60+30, 9*60+45, 10*60, 10*60+15, 10*60+30, 10*60+45, 11*60, 11*60+15, 11*60+30, 11*60+45],
+  "proposal-sent":  [10*60+30, 10*60+45, 11*60, 11*60+15, 11*60+30],
+  "under-contract": [11*60, 11*60+15, 11*60+30, 11*60+45],
+  "active-mls":     [11*60+30, 15*60, 15*60+15, 15*60+30, 15*60+45],
+  "listed":         [11*60+30, 15*60, 15*60+15, 15*60+30],
+  "past-client":    [16*60, 16*60+15, 16*60+30, 16*60+45, 17*60, 17*60+15],
+};
+const FALLBACK_SLOTS = [15*60+30, 15*60+45, 16*60, 16*60+15, 16*60+30, 16*60+45, 17*60, 17*60+15, 17*60+30];
+const LUNCH_START = 12 * 60;
+const LUNCH_END   = 13 * 60;
+const MIN_SLOT    = 9  * 60;
+const MAX_SLOT    = 17 * 60 + 30;
+
+function assignSendTimes(items: Array<{ tpl: string; suggestedSendTime?: string }>) {
+  const used = new Set<number>();
+  for (const item of items) {
+    const pool = [...(SLOT_POOLS[item.tpl] ?? []), ...FALLBACK_SLOTS];
+    let assigned: number | undefined;
+    for (const slot of pool) {
+      if (slot >= MIN_SLOT && slot <= MAX_SLOT &&
+          !(slot >= LUNCH_START && slot < LUNCH_END) &&
+          !used.has(slot)) {
+        assigned = slot;
+        used.add(slot);
+        break;
+      }
+    }
+    if (assigned === undefined) {
+      for (let t = MIN_SLOT; t <= MAX_SLOT; t += 5) {
+        if (!(t >= LUNCH_START && t < LUNCH_END) && !used.has(t)) {
+          assigned = t;
+          used.add(t);
+          break;
+        }
+      }
+    }
+    if (assigned !== undefined) {
+      const h = Math.floor(assigned / 60);
+      const m = assigned % 60;
+      item.suggestedSendTime = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    }
+  }
+}
+
 const HOT_TAGS = ["hot 0-30", "past client", "hot", "seller hot"];
 
 interface GHLContact {
@@ -84,17 +128,12 @@ export interface VideoTextRecommendation {
   tags: string[];
   lastActivity: string;
   suggestedPrompt: string;
+  suggestedSendTime: string;
 }
 
-function buildPrompt(
-  tpl: string,
-  firstName: string,
-  address: string,
-  stage: string,
-  tags: string[],
-): string {
-  const isPastClient = tags.some((t) => HOT_TAGS.includes(t.toLowerCase()));
-  if (isPastClient && tpl !== "past-client") {
+function buildPrompt(tpl: string, firstName: string, address: string, stage: string, tags: string[]): string {
+  const isHot = tags.some((t) => HOT_TAGS.includes(t.toLowerCase()));
+  if (isHot && tpl !== "past-client") {
     return `${firstName}, thought of you — the St. George market moved this week. Quick update + a question for you.`;
   }
   switch (tpl) {
@@ -116,27 +155,31 @@ function buildPrompt(
 }
 
 function recencyScore(updatedAt: string): number {
-  const msAgo = Date.now() - new Date(updatedAt).getTime();
-  const daysAgo = msAgo / (1000 * 60 * 60 * 24);
-  if (daysAgo < 1) return 30;
-  if (daysAgo < 3) return 20;
-  if (daysAgo < 7) return 15;
+  const daysAgo = (Date.now() - new Date(updatedAt).getTime()) / 86_400_000;
+  if (daysAgo < 1)  return 30;
+  if (daysAgo < 3)  return 20;
+  if (daysAgo < 7)  return 15;
   if (daysAgo < 14) return 10;
   if (daysAgo < 30) return 5;
   return 0;
 }
 
 function tagScore(tags: string[]): number {
-  const lower = tags.map((t) => t.toLowerCase());
-  let score = 0;
-  if (lower.some((t) => HOT_TAGS.includes(t))) score += 20;
-  return score;
+  return tags.map((t) => t.toLowerCase()).some((t) => HOT_TAGS.includes(t)) ? 20 : 0;
 }
 
 export async function GET(req: NextRequest) {
-  const token = process.env.GHL_PIT_TOKEN;
-  const locationId = process.env.GHL_LOCATION_ID;
+  // Optional bearer auth — if THRIVES_ALERTS_TOKEN is set, enforce it
+  const requiredToken = process.env.THRIVES_ALERTS_TOKEN;
+  if (requiredToken) {
+    const auth = req.headers.get("authorization") ?? "";
+    if (auth !== `Bearer ${requiredToken}`) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  }
 
+  const token      = process.env.GHL_PIT_TOKEN;
+  const locationId = process.env.GHL_LOCATION_ID;
   if (!token || !locationId) {
     return NextResponse.json(
       { error: "GHL_PIT_TOKEN and GHL_LOCATION_ID env vars are required" },
@@ -145,68 +188,56 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Fetch all open opportunities
     const res = await fetch(
       `${GHL_API_BASE}/opportunities/search?location_id=${locationId}&limit=100&status=open`,
       {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Version: GHL_API_VERSION,
-        },
-        next: { revalidate: 300 }, // cache 5 min
+        headers: { Authorization: `Bearer ${token}`, Version: GHL_API_VERSION },
+        next: { revalidate: 300 },
       },
     );
-
     if (!res.ok) {
-      const body = await res.text();
-      console.error("GHL opportunities error:", res.status, body);
-      return NextResponse.json(
-        { error: `GHL API error ${res.status}` },
-        { status: 502 },
-      );
+      return NextResponse.json({ error: `GHL API error ${res.status}` }, { status: 502 });
     }
 
     const data = await res.json();
     const opportunities: GHLOpportunity[] = data.opportunities ?? [];
 
-    // Score and rank
-    const scored = opportunities
-      .map((opp) => {
-        const stageInfo = STAGE_MAP[opp.pipelineStageId];
-        if (!stageInfo) return null;
+    const withTpl: Array<VideoTextRecommendation & { tpl: string }> = [];
+    const scored: Array<{ rec: VideoTextRecommendation & { tpl: string }; score: number }> = [];
 
-        const contact = opp.contact ?? {};
-        const tags: string[] = contact.tags ?? [];
-        const score =
-          stageInfo.weight +
-          recencyScore(opp.updatedAt) +
-          tagScore(tags);
+    for (const opp of opportunities) {
+      const stageInfo = STAGE_MAP[opp.pipelineStageId];
+      if (!stageInfo) continue;
 
-        const fullName: string = contact.name ?? "Friend";
-        const firstName = fullName.split(" ")[0];
-        // Opportunity name often contains the address; strip the city suffix for brevity
-        const address = opp.name.replace(/\s*[-–—]\s*(St\.?\s*George|Washington County|Utah|UT).*/i, "").trim() || opp.name;
+      const contact = opp.contact ?? {};
+      const tags: string[] = contact.tags ?? [];
+      const score = stageInfo.weight + recencyScore(opp.updatedAt) + tagScore(tags);
 
-        const rec: VideoTextRecommendation = {
-          contactId: contact.id,
-          opportunityId: opp.id,
-          name: fullName,
-          firstName,
-          phone: contact.phone ?? null,
-          email: contact.email ?? null,
-          stage: stageInfo.name,
-          tags,
-          lastActivity: opp.updatedAt,
-          suggestedPrompt: buildPrompt(stageInfo.tpl, firstName, address, stageInfo.name, tags),
-        };
-        return { rec, score };
-      })
-      .filter((x): x is { rec: VideoTextRecommendation; score: number } => x !== null)
-      .sort((a, b) => b.score - a.score);
+      const fullName  = contact.name ?? "Friend";
+      const firstName = fullName.split(" ")[0];
+      const address   = opp.name.replace(/\s*[-–—]\s*(St\.?\s*George|Washington County|Utah|UT).*/i, "").trim() || opp.name;
 
-    // Deduplicate by contactId (keep highest-scored opp per contact)
+      const rec = {
+        contactId:        contact.id,
+        opportunityId:    opp.id,
+        name:             fullName,
+        firstName,
+        phone:            contact.phone ?? null,
+        email:            contact.email ?? null,
+        stage:            stageInfo.name,
+        tags,
+        lastActivity:     opp.updatedAt,
+        suggestedPrompt:  buildPrompt(stageInfo.tpl, firstName, address, stageInfo.name, tags),
+        suggestedSendTime: "",
+        tpl:              stageInfo.tpl,
+      };
+      scored.push({ rec, score });
+    }
+
+    scored.sort((a, b) => b.score - a.score);
+
     const seen = new Set<string>();
-    const top10: VideoTextRecommendation[] = [];
+    const top10: Array<VideoTextRecommendation & { tpl: string }> = [];
     for (const { rec } of scored) {
       if (!seen.has(rec.contactId)) {
         seen.add(rec.contactId);
@@ -215,7 +246,13 @@ export async function GET(req: NextRequest) {
       if (top10.length >= 10) break;
     }
 
-    return NextResponse.json({ recommendations: top10, total: scored.length });
+    // Assign staggered send times (mutates in place)
+    assignSendTimes(top10);
+
+    // Strip internal tpl field before returning
+    const recommendations: VideoTextRecommendation[] = top10.map(({ tpl: _tpl, ...rest }) => rest);
+
+    return NextResponse.json({ recommendations, total: scored.length });
   } catch (err) {
     console.error("video-text-recommendations error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
