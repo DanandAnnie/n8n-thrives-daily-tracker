@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -108,6 +108,28 @@ interface VideoRec {
   tags: string[];
   lastActivity: string;
   suggestedPrompt: string;
+  suggestedSendTime: string; // "HH:MM" 24h local Mountain Time
+}
+
+// "09:30" → "9:30 AM", "15:00" → "3:00 PM"
+function formatSendTime(hhmm: string): string {
+  const [hh, mm] = hhmm.split(":").map(Number);
+  const period = hh >= 12 ? "PM" : "AM";
+  const h12 = hh % 12 || 12;
+  return `${h12}:${String(mm).padStart(2, "0")} ${period}`;
+}
+
+// Maps "HH:MM" to the TIME_SLOTS key for the hour that contains it
+function slotKeyForTime(hhmm: string): string {
+  const hh = parseInt(hhmm.split(":")[0], 10);
+  if (hh === 13) return "1:00";
+  if (hh === 14) return "2:00";
+  if (hh === 15) return "3:00";
+  if (hh === 16) return "4:00";
+  if (hh === 17) return "5:00 PM";
+  if (hh === 18) return "6:00 PM";
+  if (hh === 19) return "7:00 PM";
+  return `${hh}:00`;
 }
 
 const STAGE_BADGE: Record<string, string> = {
@@ -129,12 +151,19 @@ function relativeTime(iso: string): string {
   return `${Math.floor(d / 30)}mo ago`;
 }
 
-function VideoTextRecommendations({ date }: { date: string }) {
+function VideoTextRecommendations({
+  onRecsLoaded,
+  autoExpand,
+}: {
+  onRecsLoaded?: (recs: VideoRec[]) => void;
+  autoExpand?: string | null;
+}) {
   const [recs, setRecs] = useState<VideoRec[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState<Record<string, boolean>>({});
+  const sectionRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -143,15 +172,24 @@ function VideoTextRecommendations({ date }: { date: string }) {
       const res = await fetch(`/api/video-text-recommendations`);
       if (!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
-      setRecs(data.recommendations ?? []);
+      const loaded: VideoRec[] = data.recommendations ?? [];
+      setRecs(loaded);
+      onRecsLoaded?.(loaded);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onRecsLoaded]);
 
   useEffect(() => { load(); }, [load]);
+
+  // When a time-grid chip is clicked, expand that rec and scroll to it
+  useEffect(() => {
+    if (!autoExpand) return;
+    setExpanded((p) => ({ ...p, [autoExpand]: true }));
+    setTimeout(() => sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50);
+  }, [autoExpand]);
 
   const copyPrompt = (id: string, prompt: string) => {
     navigator.clipboard.writeText(prompt).then(() => {
@@ -161,7 +199,7 @@ function VideoTextRecommendations({ date }: { date: string }) {
   };
 
   return (
-    <div className="mt-4 space-y-2">
+    <div ref={sectionRef} className="mt-4 space-y-2">
       <div className="flex items-center justify-between">
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
           Suggested Video Texts
@@ -198,6 +236,11 @@ function VideoTextRecommendations({ date }: { date: string }) {
               <span className={`text-xs px-1.5 py-0.5 rounded border ${badge} whitespace-nowrap`}>
                 {rec.stage}
               </span>
+              {rec.suggestedSendTime && (
+                <span className="text-xs bg-primary/10 text-primary border border-primary/30 px-1.5 py-0.5 rounded whitespace-nowrap font-mono">
+                  {formatSendTime(rec.suggestedSendTime)}
+                </span>
+              )}
               <span className="text-xs text-muted-foreground whitespace-nowrap">
                 {relativeTime(rec.lastActivity)}
               </span>
@@ -251,6 +294,8 @@ export default function DailySheet() {
   const [calendarMessage, setCalendarMessage] = useState("");
   const [savedSheets, setSavedSheets] = useState<SavedSheet[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [videoRecs, setVideoRecs] = useState<VideoRec[]>([]);
+  const [autoExpandRec, setAutoExpandRec] = useState<string | null>(null);
 
   const today = new Date();
   const dayIndex = today.getDay() === 0 ? 6 : today.getDay() - 1;
@@ -846,7 +891,10 @@ export default function DailySheet() {
           </div>
 
           {/* Video text recommendations */}
-          <VideoTextRecommendations date={formData.date} />
+          <VideoTextRecommendations
+            onRecsLoaded={setVideoRecs}
+            autoExpand={autoExpandRec}
+          />
         </CardContent>
       </Card>
 
@@ -954,22 +1002,45 @@ export default function DailySheet() {
               </div>
 
               <div className="space-y-2 mt-4">
-                {TIME_SLOTS.map((time) => (
-                  <div key={time} className="flex items-center gap-2">
-                    <span className="text-sm w-16 text-muted-foreground">{time}</span>
-                    <Input
-                      value={formData.timeBlocks[time] || ""}
-                      onChange={(e) =>
-                        updateField("timeBlocks", {
-                          ...formData.timeBlocks,
-                          [time]: e.target.value,
-                        })
-                      }
-                      placeholder=""
-                      className="h-8 text-sm"
-                    />
-                  </div>
-                ))}
+                {(() => {
+                  // Build slot → recs map for chip rendering
+                  const recsBySlot: Record<string, VideoRec[]> = {};
+                  for (const rec of videoRecs) {
+                    if (!rec.suggestedSendTime) continue;
+                    const key = slotKeyForTime(rec.suggestedSendTime);
+                    (recsBySlot[key] ??= []).push(rec);
+                  }
+                  return TIME_SLOTS.map((time) => (
+                    <div key={time} className="flex items-center gap-2">
+                      <span className="text-sm w-16 text-muted-foreground shrink-0">{time}</span>
+                      <Input
+                        value={formData.timeBlocks[time] || ""}
+                        onChange={(e) =>
+                          updateField("timeBlocks", {
+                            ...formData.timeBlocks,
+                            [time]: e.target.value,
+                          })
+                        }
+                        placeholder=""
+                        className="h-8 text-sm"
+                      />
+                      {(recsBySlot[time] ?? []).map((rec) => {
+                        const badge = STAGE_BADGE[rec.stage] ?? "bg-muted text-muted-foreground border-border";
+                        return (
+                          <button
+                            key={rec.opportunityId}
+                            type="button"
+                            title={`${rec.name} — ${rec.stage}\n${rec.suggestedPrompt}`}
+                            onClick={() => setAutoExpandRec(rec.opportunityId)}
+                            className={`shrink-0 text-xs px-1.5 py-0.5 rounded border ${badge} whitespace-nowrap`}
+                          >
+                            {rec.firstName} {formatSendTime(rec.suggestedSendTime)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ));
+                })()}
               </div>
 
               <div className="space-y-2 mt-4">
