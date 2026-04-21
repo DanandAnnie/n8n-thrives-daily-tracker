@@ -26,6 +26,36 @@ const TIME_SLOTS = [
   "1:00", "2:00", "3:00", "4:00", "5:00 PM", "6:00 PM", "7:00 PM",
 ];
 
+type TimeBlock = {
+  start: string;
+  end: string;
+  label: string;
+  category: "expireds-fsbos" | "frbo-str" | "appointments" | "follow-up";
+};
+
+function getTimeBlocksForDay(dayOfWeek: number): TimeBlock[] {
+  // dayOfWeek: 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
+  const appt: TimeBlock = { start: "2:00 PM", end: "4:00 PM", label: "Listing Appointments", category: "appointments" };
+  const expireds: TimeBlock = { start: "8:00 AM", end: "10:00 AM", label: "Expireds + FSBOs", category: "expireds-fsbos" };
+  const frbo: TimeBlock = { start: "8:00 AM", end: "10:00 AM", label: "FRBO / STR Investor Outreach", category: "frbo-str" };
+  switch (dayOfWeek) {
+    case 0: return [expireds, appt];           // Mon
+    case 1: return [frbo, appt];               // Tue
+    case 2: return [expireds, appt];           // Wed
+    case 3: return [frbo, appt];               // Thu
+    case 4: return [expireds, appt];           // Fri
+    case 5: return [{ start: "9:00 AM", end: "11:00 AM", label: "Follow-up + FRBO", category: "follow-up" }]; // Sat
+    default: return [];                        // Sun
+  }
+}
+
+const BLOCK_STYLES: Record<TimeBlock["category"], string> = {
+  "expireds-fsbos": "border-red-500 bg-red-500/10 text-red-400",
+  "frbo-str":       "border-blue-500 bg-blue-500/10 text-blue-400",
+  "appointments":   "border-amber-400 bg-amber-400/10 text-amber-400",
+  "follow-up":      "border-green-500 bg-green-500/10 text-green-400",
+};
+
 interface SavedSheet {
   id: string;
   date: string;
@@ -762,6 +792,22 @@ export default function DailySheet() {
                   />
                 </div>
               ))}
+
+              {/* Prospecting schedule for the selected day */}
+              <div className="space-y-1 mt-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Prospecting Schedule</p>
+                {getTimeBlocksForDay(formData.dayOfWeek).length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic">No prospecting blocks scheduled — rest day.</p>
+                ) : (
+                  getTimeBlocksForDay(formData.dayOfWeek).map((block, i) => (
+                    <div key={i} className={`flex items-center gap-2 px-3 py-1.5 rounded border-l-4 text-sm ${BLOCK_STYLES[block.category]}`}>
+                      <span className="font-medium whitespace-nowrap">{block.start} – {block.end}</span>
+                      <span className="text-xs opacity-80">—</span>
+                      <span>{block.label}</span>
+                    </div>
+                  ))
+                )}
+              </div>
 
               <div className="space-y-2 mt-4">
                 {TIME_SLOTS.map((time) => (
